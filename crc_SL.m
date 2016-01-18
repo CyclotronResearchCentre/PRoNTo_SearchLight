@@ -22,6 +22,7 @@ Pprt = spm_select(1,'mat','Select the PRT.mat file');
 [pth,nam,ext,num] = spm_fileparts(Pprt);
 load(Pprt)
 
+i_model = 1; % Model index to use -> adjust according to your need!!!
 PRTorig = PRT;
 
 Pmsk = PRT.masks.fname ; % should be the updated 1st level mask
@@ -78,18 +79,21 @@ PRTw.model = rmfield(PRTorig.model,'output');
 fs_whole = PRTw.fas.dat(:,:);
 
 %% Loops over all voxels from the 1st level mask & collect accuracies
-SLres(nVx+1) = PRTorig.model.output.stats; % initialier SL results structure array and include at N+1 the full mask results
+SLres(nVx+1) = PRTorig.model(i_model).output.stats; % initialier SL results structure array and include at N+1 the full mask results
 kern_file = fullfile(pth,PRTorig.fs.fs_name);
 h_wb = waitbar(0,'Voxel counts');
+
+tic
 for ii=1:nVx
     PRT = PRTw;
     i_vx = lVx(ii);
     % 1/ update the list of voxels for 2nd level mask in PRT
-    xyz_cl = bsxfun(@plus,XYZ(:,i_vx),clique);
+%     xyz_cl = bsxfun(@plus,XYZ(:,i_vx),clique);
+    xyz_cl = bsxfun(@plus,XYZ(:,ii),clique);
     % remove stuff outside image volume
-    l_2rm = ~~sum(bsxfun(@lt, xyz_cl, ones(3,1)));
+    l_2rm = logical(sum(bsxfun(@lt, xyz_cl, ones(3,1))));
     xyz_cl(:,l_2rm) = [];
-    l_2rm = ~~sum(bsxfun(@gt, xyz_cl, DIM'));
+    l_2rm = logical(sum(bsxfun(@gt, xyz_cl, DIM')));
     xyz_cl(:,l_2rm) = [];
     % create list
     Lcl = xyz_cl(1,:) + (xyz_cl(2,:)-1)*DIM(1) + (xyz_cl(3,:)-1)*DIM(1)*DIM(2);
@@ -116,14 +120,15 @@ for ii=1:nVx
         % 3/ launch estimate
         %     PRT = prt_model(PRT,mod_w);
         in.fname      = Pprt;
-        in.model_name = PRT.model.model_name;
+        in.model_name = PRT.model(i_model).model_name;
         in.savePRT = false;
         PRT = prt_cv_model(PRT, in);
         % 4/ collect accuracies
-        SLres(ii) = PRT.model.output.stats;
+        SLres(ii) = PRT.model(i_model).output.stats;
     end
     clear PRT
     waitbar(ii/nVx,h_wb)
 end
+toc
 
 close(h_wb)
