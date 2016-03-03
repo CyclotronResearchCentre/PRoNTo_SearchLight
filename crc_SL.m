@@ -10,6 +10,10 @@
 %       - re-estimate the kernel from the subset of voxels
 %       - launch the model estimation
 %       - collect tha accuracies
+%
+% NOTE: 
+% PRoNTo must be initialized before using the script as it relies on
+% PRoNTo's machinery.
 %__________________________________________________________________________
 % Copyright (C) 2015 Cyclotron Research Centre
 
@@ -84,22 +88,21 @@ kern_file = fullfile(pth,PRTorig.fs.fs_name);
 h_wb = waitbar(0,'Voxel counts');
 
 tic
-for ii=1:nVx
+for ivx=1:nVx
     PRT = PRTw;
-    i_vx = lVx(ii);
+    i_vx = lVx(ivx);
     % 1/ update the list of voxels for 2nd level mask in PRT
-%     xyz_cl = bsxfun(@plus,XYZ(:,i_vx),clique);
-    xyz_cl = bsxfun(@plus,XYZ(:,ii),clique);
+    xyz_cl = bsxfun(@plus,XYZ(:,ivx),clique);
     % remove stuff outside image volume
     l_2rm = logical(sum(bsxfun(@lt, xyz_cl, ones(3,1))));
     xyz_cl(:,l_2rm) = [];
     l_2rm = logical(sum(bsxfun(@gt, xyz_cl, DIM')));
     xyz_cl(:,l_2rm) = [];
     % create list
-    Lcl = xyz_cl(1,:) + (xyz_cl(2,:)-1)*DIM(1) + (xyz_cl(3,:)-1)*DIM(1)*DIM(2);
+    Lcl = sub2ind(DIM,xyz_cl(1,:),xyz_cl(2,:),xyz_cl(3,:));
     Lres = find(any(bsxfun(@eq, lVx', Lcl')));
     % List of voxels to use
-    PRT.fs.modality.idfeat_fas = Lres';
+    PRT.fs.modality.idfeat_fas = lVx(Lres);
     
     % 2/ Rebuild kernel & save it
     datSL = fs_whole(:,Lres);
@@ -113,7 +116,7 @@ for ii=1:nVx
         save(kern_file,'Phi');
     else
         igd = false;
-        fprintf('\n Skipping voxel %d.',ii);
+        fprintf('\n Skipping voxel %d.',ivx);
     end
     
     if igd
@@ -124,11 +127,80 @@ for ii=1:nVx
         in.savePRT = false;
         PRT = prt_cv_model(PRT, in);
         % 4/ collect accuracies
-        SLres(ii) = PRT.model(i_model).output.stats;
+        SLres(ivx) = PRT.model(i_model).output.stats;
+        
+        % TO DO
+        % 5/ permuation testing to get a p-value
+        % -> only do this if it's worth (check the accuracy) !
     end
     clear PRT
-    waitbar(ii/nVx,h_wb)
+    waitbar(ivx/nVx,h_wb)
 end
 toc
-
 close(h_wb)
+
+%% Save results into images.
+% Results structure for classification & regression
+%   Classification:
+% stats.con_mat: Confusion matrix (nClasses x nClasses matrix, pred x true)
+% stats.acc:     Accuracy (scalar)
+% stats.b_acc:   Balanced accuracy (nClasses x 1 vector)
+% stats.c_acc:   Accuracy by class (nClasses x 1 vector)
+% stats.c_pv:    Predictive value for each class (nClasses x 1 vector)
+% stats.acc_lb:  \_ Lower/upper 5% confidence interval bounds for a  
+% stats.acc_ub:  /  binomial distribution using Wilson's 'score interval'
+%
+%   Regression:
+% stats.mse:     Mean square error between test and prediction
+% stats.corr:    Correlation between test and prediction
+% stats.r2:      Squared correlation
+
+% TO DO, when the p-value is available, save it as an image too!
+
+switch PRT.model(i_model).input.type
+    case 'classification'
+        % save acc/b_acc/c_acc only, maybe add others or leave option later on...
+        % 1/ prepre files: acc, b_acc, 
+        Vacc = Vmsk;
+        Vacc.fname = fullfile(pth,['SLacc_',PRT.model(i_model).model_name,'.nii']);
+        Vacc.dt(1) = 16; % save as float
+        Vacc.descrip = 'PRoNTo Search Light accuracy';
+        Vacc = spm_create_vol(Vacc);
+        Vbacc = Vacc;
+        Vbacc.fname = fullfile(pth,['SLbacc_',PRT.model(i_model).model_name,'.nii']);
+        Vbacc.descrip = 'PRoNTo Search Light balanced accuracy';
+        Vbacc = spm_create_vol(Vbacc);
+        nClasses = numel(SLres(end).c_acc);
+        Vcacc(nClasses) = Vacc;
+        for ii=1:nClasses
+            Vcacc(ii) = Vacc;
+            Vcacc(ii).fname = fullfile(pth,['SLcacc',num2str(ii),'_',PRT.model(i_model).model_name,'.nii']);
+            Vcacc(ii).descrip = ['PRoNTo Search Light class ',num2str(ii),' accuracy'];
+            Vcacc(ii) = spm_create_vol(Vcacc(ii));
+        end
+        % 2/ prepare & collect values
+        val_acc = zeros(prod(DIM),1)+NaN;
+        val_bacc = zeros(prod(DIM),1)+NaN;
+        val_cacc = zeros(prod(DIM),nClasses)+NaN;
+        for ivx=1:nVx
+            if ~isempty(SLres(ivx).acc)
+                i_vx = lVx(ivx);
+                val_acc(i_vx) = SLres(ivx).acc;
+                val_bacc(i_vx) = SLres(ivx).b_acc;
+                val_cacc(i_vx,:) = SLres(ivx).c_acc;
+            end
+        end
+        val_acc = reshape(val_acc,DIM);
+        val_bacc = reshape(val_bacc,DIM);
+        val_cacc = reshape(val_cacc,[DIM nClasses]);
+        % 3/ save values
+        Vacc = spm_write_vol(Vacc,val_acc);
+        Vbacc = spm_write_vol(Vbacc,val_bacc);
+        for ii=1:nClasses
+            Vcacc(ii) = spm_write_vol(Vcacc(ii),squeeze(val_cacc(:,:,:,ii)));
+        end
+    case 'regression'
+        % Nothing here yet!
+    otherwise
+        fprintf('\nUnknown model type!\n')
+end
