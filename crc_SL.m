@@ -1,33 +1,66 @@
-%
-% Small script to hack through some PRT structure (from PRoNTo) in order to
+function [SLres,Pout] = crc_SL(Pprt,opt)
+
+% Function to hack through some PRT structure (from PRoNTo) in order to
 % proceed with a "search light" approach.
 %
 % The idea is simple:
 % 1/ proceed with your whole brain PRoNTo classification
-% 2/ use the full prt structure to as a template for "search light" and
-%    loop over the voxels in the 1st level mask
+% 2/ use the full prt structure as a template for "search light" and
+%    loop over the voxels in the *1st level mask*
 %       - create a small spherical volume
 %       - re-estimate the kernel from the subset of voxels
 %       - launch the model estimation
 %       - collect tha accuracies
+% 3/ save accuracies (full, balanced & per class) into images
 %
-% NOTE: 
-% PRoNTo must be initialized before using the script as it relies on
-% PRoNTo's machinery.
+% FORMAT
+% [SLres,Pout] = crc_SL(Pprt,opt)
+%
+% INPUT:
+% - Pprt    Filename (with path) of PRT.mat file to use
+% - opt     some options (more could be added...)
+%       .R       radius in mm of the spherical searchlight [10 by def.]
+%       .i_model index of PRoNTo model to use [1 by def.]
+%       .loadF   load all features or not [true by def.]
+%       .savImg  save results in image format or not [true by def.]
+%
+% OUTPUT:
+% - SLres   Searchlight results structure array. There is 1 structure per
+%           voxel in the mask + 1 (last one) with the original whole mask
+%           results
+% - Pout    Filenames of generated stuff
+%
+%--------------------------------------------------------------------------
+% NOTE:
+% - PRoNTo must be initialized before using the script as it relies on
+%   PRoNTo's machinery.
+% - other clique format could be used, for example: cubes in images or
+%   planes/lines for other types of data (connectivity matrix, ERP's, etc.)
+% - no inference at the moment but this could be added...
 %__________________________________________________________________________
 % Copyright (C) 2015 Cyclotron Research Centre
 
 % Written by Christophe Phillips
 % University of Liège, Belgium
 
+if nargin<2
+    R = 10; % search light radius in mm
+    i_model = 1; % Model index to use
+    loadF = true;
+    savImg = true;
+else
+    R = opt.R; % search light radius in mm
+    i_model = opt.i_model; % Model index to use
+    loadF = opt.loadF;
+    savImg = opt.savImg;
+end
 
-R = 10; % search light radius in mm
-Pprt = spm_select(1,'mat','Select the PRT.mat file');
-[pth,nam,ext,num] = spm_fileparts(Pprt);
+if nargin<1
+    Pprt = spm_select(1,'mat','Select the PRT.mat file');
+end
+[pth,nam,ext,num] = spm_fileparts(Pprt); %#ok<*NASGU,*ASGLU>
 load(Pprt)
-
-i_model = 1; % Model index to use -> adjust according to your need!!!
-PRTorig = PRT;
+PRTorig = PRT; %#ok<*NODEF>
 
 Pmsk = PRT.masks.fname ; % should be the updated 1st level mask
 Vmsk = spm_vol(Pmsk);
@@ -77,13 +110,17 @@ dc           = (max(clique,[],2) - min(clique,[],2) + 1)'; % size of clique radi
 PRTw = rmfield(PRTorig,'model'); % PRT before model estimation, still need to adjust feature selection!
 PRTw.model = rmfield(PRTorig.model,'output');
 
-% Use filearray
-% fs_whole = PRTw.fas.dat;
-% or load in memory
-fs_whole = PRTw.fas.dat(:,:);
+if loadF
+    % Load all features in memory
+    fs_whole = PRTw.fas.dat(:,:);
+else
+    % or use filearray -> slower but less memory hungry!
+    fs_whole = PRTw.fas.dat;
+end
 
 %% Loops over all voxels from the 1st level mask & collect accuracies
-SLres(nVx+1) = PRTorig.model(i_model).output.stats; % initialier SL results structure array and include at N+1 the full mask results
+% initialier SL results structure array and include at N+1 the full mask results
+SLres(nVx+1) = PRTorig.model(i_model).output.stats;
 kern_file = fullfile(pth,PRTorig.fs.fs_name);
 h_wb = waitbar(0,'Voxel counts');
 
@@ -111,15 +148,15 @@ for ivx=1:nVx
     [~,idmin] = min(Phim);
     min_max = find(idmax==idmin);
     if isempty(min_max) || unique(Phim(:,min_max))~=0 %Kernel does not contain a whole line of zeros
-        igd = true;
+        igd = true; % -> proceed with model estimation
         Phi{1} = Phim;
         save(kern_file,'Phi');
     else
-        igd = false;
+        igd = false; % -> no need to estimate the model
         fprintf('\n Skipping voxel %d.',ivx);
     end
     
-    if igd
+    if igd % Proceed if the index is "good"
         % 3/ launch estimate
         %     PRT = prt_model(PRT,mod_w);
         in.fname      = Pprt;
@@ -139,7 +176,12 @@ end
 toc
 close(h_wb)
 
-%% Save results into images.
+P_SLresults = spm_file(Pprt,'filename','SLresults.mat');
+save(P_SLresults,'SLres')
+
+Pout{1} = P_SLresults;
+
+%% Save results into images, if requested
 % Results structure for classification & regression
 %   Classification:
 % stats.con_mat: Confusion matrix (nClasses x nClasses matrix, pred x true)
@@ -147,7 +189,7 @@ close(h_wb)
 % stats.b_acc:   Balanced accuracy (nClasses x 1 vector)
 % stats.c_acc:   Accuracy by class (nClasses x 1 vector)
 % stats.c_pv:    Predictive value for each class (nClasses x 1 vector)
-% stats.acc_lb:  \_ Lower/upper 5% confidence interval bounds for a  
+% stats.acc_lb:  \_ Lower/upper 5% confidence interval bounds for a
 % stats.acc_ub:  /  binomial distribution using Wilson's 'score interval'
 %
 %   Regression:
@@ -156,51 +198,97 @@ close(h_wb)
 % stats.r2:      Squared correlation
 
 % TO DO, when the p-value is available, save it as an image too!
-
-switch PRT.model(i_model).input.type
-    case 'classification'
-        % save acc/b_acc/c_acc only, maybe add others or leave option later on...
-        % 1/ prepre files: acc, b_acc, 
-        Vacc = Vmsk;
-        Vacc.fname = fullfile(pth,['SLacc_',PRT.model(i_model).model_name,'.nii']);
-        Vacc.dt(1) = 16; % save as float
-        Vacc.descrip = 'PRoNTo Search Light accuracy';
-        Vacc = spm_create_vol(Vacc);
-        Vbacc = Vacc;
-        Vbacc.fname = fullfile(pth,['SLbacc_',PRT.model(i_model).model_name,'.nii']);
-        Vbacc.descrip = 'PRoNTo Search Light balanced accuracy';
-        Vbacc = spm_create_vol(Vbacc);
-        nClasses = numel(SLres(end).c_acc);
-        Vcacc(nClasses) = Vacc;
-        for ii=1:nClasses
-            Vcacc(ii) = Vacc;
-            Vcacc(ii).fname = fullfile(pth,['SLcacc',num2str(ii),'_',PRT.model(i_model).model_name,'.nii']);
-            Vcacc(ii).descrip = ['PRoNTo Search Light class ',num2str(ii),' accuracy'];
-            Vcacc(ii) = spm_create_vol(Vcacc(ii));
-        end
-        % 2/ prepare & collect values
-        val_acc = zeros(prod(DIM),1)+NaN;
-        val_bacc = zeros(prod(DIM),1)+NaN;
-        val_cacc = zeros(prod(DIM),nClasses)+NaN;
-        for ivx=1:nVx
-            if ~isempty(SLres(ivx).acc)
-                i_vx = lVx(ivx);
-                val_acc(i_vx) = SLres(ivx).acc;
-                val_bacc(i_vx) = SLres(ivx).b_acc;
-                val_cacc(i_vx,:) = SLres(ivx).c_acc;
+if savImg
+    switch PRTw.model(i_model).input.type
+        case 'classification'
+            % save acc/bacc/cacc only, maybe add others or leave option later on...
+            % 1/ prepre files: Vacc, Vbacc, Vcacc(1/2/...)
+            Vacc = Vmsk;
+            Vacc.fname = fullfile(pth,['SLacc_',PRT.model(i_model).model_name,'.nii']);
+            Vacc.dt(1) = 16; % save as float
+            Vacc.descrip = 'PRoNTo Search Light accuracy';
+            Vacc = spm_create_vol(Vacc);
+            Vbacc = Vacc;
+            Vbacc.fname = fullfile(pth,['SLbacc_',PRT.model(i_model).model_name,'.nii']);
+            Vbacc.descrip = 'PRoNTo Search Light balanced accuracy';
+            Vbacc = spm_create_vol(Vbacc);
+            nClasses = numel(SLres(end).c_acc);
+            Vcacc(nClasses) = Vacc;
+            for ii=1:nClasses
+                Vcacc(ii) = Vacc;
+                Vcacc(ii).fname = fullfile(pth,['SLcacc',num2str(ii),'_',PRT.model(i_model).model_name,'.nii']);
+                Vcacc(ii).descrip = ['PRoNTo Search Light class ',num2str(ii),' accuracy'];
+                Vcacc(ii) = spm_create_vol(Vcacc(ii));
             end
-        end
-        val_acc = reshape(val_acc,DIM);
-        val_bacc = reshape(val_bacc,DIM);
-        val_cacc = reshape(val_cacc,[DIM nClasses]);
-        % 3/ save values
-        Vacc = spm_write_vol(Vacc,val_acc);
-        Vbacc = spm_write_vol(Vbacc,val_bacc);
-        for ii=1:nClasses
-            Vcacc(ii) = spm_write_vol(Vcacc(ii),squeeze(val_cacc(:,:,:,ii)));
-        end
-    case 'regression'
-        % Nothing here yet!
-    otherwise
-        fprintf('\nUnknown model type!\n')
+            % 2/ prepare & collect values
+            val_acc = zeros(prod(DIM),1)+NaN;
+            val_bacc = zeros(prod(DIM),1)+NaN;
+            val_cacc = zeros(prod(DIM),nClasses)+NaN;
+            for ivx=1:nVx
+                if ~isempty(SLres(ivx).acc)
+                    i_vx = lVx(ivx);
+                    val_acc(i_vx) = SLres(ivx).acc;
+                    val_bacc(i_vx) = SLres(ivx).b_acc;
+                    val_cacc(i_vx,:) = SLres(ivx).c_acc;
+                end
+            end
+            val_acc = reshape(val_acc,DIM);
+            val_bacc = reshape(val_bacc,DIM);
+            val_cacc = reshape(val_cacc,[DIM nClasses]);
+            % 3/ save values into images
+            Vacc = spm_write_vol(Vacc,val_acc);
+            Vbacc = spm_write_vol(Vbacc,val_bacc);
+            for ii=1:nClasses
+                Vcacc(ii) = spm_write_vol(Vcacc(ii),squeeze(val_cacc(:,:,:,ii)));
+            end
+            % 4/ save filenames
+            Pout{2} = Vacc.fname;
+            Pout{3} = Vbacc.fname;
+            for ii=1:nClasses
+                Pout{3+ii} = Vcacc(ii).fname; %#ok<*AGROW>
+            end
+        case 'regression'
+            % save mse, corr, r2
+            % 1/ prepre files: Vmse, Vcorr, Vr2
+            Vmse = Vmsk;
+            Vmse.fname = fullfile(pth,['SLmse_',PRT.model(i_model).model_name,'.nii']);
+            Vmse.dt(1) = 16; % save as float
+            Vmse.descrip = 'PRoNTo Search Light MSE';
+            Vmse = spm_create_vol(Vmse);
+            Vcorr = Vmse;
+            Vcorr.fname = fullfile(pth,['SLcorr_',PRT.model(i_model).model_name,'.nii']);
+            Vcorr.descrip = 'PRoNTo Search Light Correlation';
+            Vcorr = spm_create_vol(Vcorr);
+            Vr2 = Vmse;
+            Vr2.fname = fullfile(pth,['SLr2_',PRT.model(i_model).model_name,'.nii']);
+            Vr2.descrip = 'PRoNTo Search Light R2';
+            Vr2 = spm_create_vol(Vr2);
+            
+            % 2/ prepare & collect values
+            val_mse = zeros(prod(DIM),1)+NaN;
+            val_corr = zeros(prod(DIM),1)+NaN;
+            val_r2 = zeros(prod(DIM),1)+NaN;
+            for ivx=1:nVx
+                if ~isempty(SLres(ivx).mse)
+                    i_vx = lVx(ivx);
+                    val_mse(i_vx) = SLres(ivx).mse;
+                    val_corr(i_vx) = SLres(ivx).corr;
+                    val_r2(i_vx) = SLres(ivx).r2;
+                end
+            end
+            val_mse = reshape(val_mse,DIM);
+            val_corr = reshape(val_corr,DIM);
+            val_r2 = reshape(val_r2,DIM);
+            % 3/ save values
+            Vmse = spm_write_vol(Vmse,val_mse);
+            Vcorr = spm_write_vol(Vcorr,val_corr);
+            Vr2 = spm_write_vol(Vr2,val_r2);
+            Pout{2} = Vmse.fname;
+            Pout{3} = Vcorr.fname;
+            Pout{4} = Vr2.fname;
+        otherwise
+            fprintf('\nUnknown model type!\n')
+    end
+end
+
 end
