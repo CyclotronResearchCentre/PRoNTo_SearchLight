@@ -21,6 +21,7 @@ function [SLres,Pout] = crc_SL(Pprt,opt)
 % - opt     some options (more could be added...)
 %       .R       radius in mm of the spherical searchlight [10 by def.]
 %       .i_model index of PRoNTo model to use [1 by def.]
+%       .i_fs    index of PRoNTo feature set to use [1 by def.]
 %       .loadF   load all features or not [true by def.]
 %       .savImg  save results in image format or not [true by def.]
 %
@@ -46,16 +47,18 @@ function [SLres,Pout] = crc_SL(Pprt,opt)
 if nargin<2
     R = 10; % search light radius in mm
     i_model = 1; % Model index to use
+    i_fs = 1; % Feature set index to use
     loadF = true;
     savImg = true;
 else
     R = opt.R; % search light radius in mm
     i_model = opt.i_model; % Model index to use
+    i_fs = opt.i_fs; % Model index to use
     loadF = opt.loadF;
     savImg = opt.savImg;
 end
 
-if nargin<1
+if nargin<1 || isempty(Pprt)
     Pprt = spm_select(1,'mat','Select the PRT.mat file');
 end
 [pth,nam,ext,num] = spm_fileparts(Pprt); %#ok<*NASGU,*ASGLU>
@@ -121,7 +124,7 @@ end
 %% Loops over all voxels from the 1st level mask & collect accuracies
 % initialier SL results structure array and include at N+1 the full mask results
 SLres(nVx+1) = PRTorig.model(i_model).output.stats;
-kern_file = fullfile(pth,PRTorig.fs.fs_name);
+kern_file = fullfile(pth,PRTorig.fs(i_fs).fs_name);
 h_wb = waitbar(0,'Voxel counts');
 
 tic
@@ -139,7 +142,7 @@ for ivx=1:nVx
     Lcl = sub2ind(DIM,xyz_cl(1,:),xyz_cl(2,:),xyz_cl(3,:));
     Lres = find(any(bsxfun(@eq, lVx', Lcl')));
     % List of voxels to use
-    PRT.fs.modality.idfeat_fas = lVx(Lres);
+    PRT.fs(i_fs).modality.idfeat_fas = lVx(Lres);
     
     % 2/ Rebuild kernel & save it
     datSL = fs_whole(:,Lres);
