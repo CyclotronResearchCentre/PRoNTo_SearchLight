@@ -83,6 +83,7 @@ nVx = numel(lVx);
 
 %-Search volume (from mask)
 MM     = spm_read_vols(Vmsk);
+MM(isnan(MM)) = 0; % turn NaN's into 0's
 MM     = logical(MM);
 XYZmm  = XYZmm(:,MM(:));
 XYZ    = XYZ(:,MM(:));
