@@ -21,7 +21,6 @@ function [SLres,Pout] = crc_SL(Pprt,opt)
 % - opt     some options (more could be added...)
 %       .R       radius in mm of the spherical searchlight [10 by def.]
 %       .i_model index of PRoNTo model to use [1 by def.]
-%       .i_fs    index of PRoNTo feature set to use [1 by def.]
 %       .loadF   load all features or not [true by def.]
 %       .savImg  save results in image format or not [true by def.]
 %
@@ -47,13 +46,11 @@ function [SLres,Pout] = crc_SL(Pprt,opt)
 if nargin<2
     R = 10; % search light radius in mm
     i_model = 1; % Model index to use
-    i_fs = 1; % Feature set index to use
     loadF = true;
     savImg = true;
 else
     R = opt.R; % search light radius in mm
     i_model = opt.i_model; % Model index to use
-    i_fs = opt.i_fs; % Model index to use
     loadF = opt.loadF;
     savImg = opt.savImg;
 end
@@ -120,6 +117,13 @@ if loadF
 else
     % or use filearray -> slower but less memory hungry!
     fs_whole = PRTw.fas.dat;
+end
+
+% find feature set index: i_fs
+fs_names = cellstr(char(PRTorig.fs(:).fs_name));
+i_fs = find(strcmp(PRTorig.model(i_model).input.fs.fs_name,fs_names));
+if isempty(i_fs)
+    error('prtSL:fs_model','No matching feature set for model #%d.\n',i_model)
 end
 
 %% Loops over all voxels from the 1st level mask & collect accuracies
