@@ -43,17 +43,21 @@ function [SLres,Pout] = crc_SL(Pprt,opt)
 % Written by Christophe Phillips
 % University of Liège, Belgium
 
-if nargin<2
-    R = 10; % search light radius in mm
-    i_model = 1; % Model index to use
-    loadF = true;
-    savImg = true;
-else
-    R = opt.R; % search light radius in mm
-    i_model = opt.i_model; % Model index to use
-    loadF = opt.loadF;
-    savImg = opt.savImg;
+% Initialize PRoNTo if needed
+if ~exist('prt_checkAlphaNumUnder','file')
+    prt('startup','nogui')
 end
+
+opt_def = struct('R',10,'i_model',1,'loadF',true,'savImg',true);
+if nargin<2
+    opt = opt_def;
+else
+    opt = prt_check_flag(opt_def,opt);
+end
+R = opt.R; % search light radius in mm
+i_model = opt.i_model; % Model index to use
+loadF = opt.loadF;
+savImg = opt.savImg;
 
 if nargin<1 || isempty(Pprt)
     Pprt = spm_select(1,'mat','Select the PRT.mat file');
@@ -129,7 +133,7 @@ end
 %% Loops over all voxels from the 1st level mask & collect accuracies
 % initialier SL results structure array and include at N+1 the full mask results
 SLres(nVx+1) = PRTorig.model(i_model).output.stats;
-kern_file = fullfile(pth,PRTorig.fs(i_fs).fs_name);
+kern_file = fullfile(pth,PRTorig.fs(i_fs).k_file);
 h_wb = waitbar(0,'Voxel counts');
 
 tic
@@ -212,19 +216,19 @@ if savImg
             % save acc/bacc/cacc only, maybe add others or leave option later on...
             % 1/ prepre files: Vacc, Vbacc, Vcacc(1/2/...)
             Vacc = Vmsk;
-            Vacc.fname = fullfile(pth,['SLacc_',PRT.model(i_model).model_name,'.nii']);
+            Vacc.fname = fullfile(pth,['SLacc_',PRTw.model(i_model).model_name,'.nii']);
             Vacc.dt(1) = 16; % save as float
             Vacc.descrip = 'PRoNTo Search Light accuracy';
             Vacc = spm_create_vol(Vacc);
             Vbacc = Vacc;
-            Vbacc.fname = fullfile(pth,['SLbacc_',PRT.model(i_model).model_name,'.nii']);
+            Vbacc.fname = fullfile(pth,['SLbacc_',PRTw.model(i_model).model_name,'.nii']);
             Vbacc.descrip = 'PRoNTo Search Light balanced accuracy';
             Vbacc = spm_create_vol(Vbacc);
             nClasses = numel(SLres(end).c_acc);
             Vcacc(nClasses) = Vacc;
             for ii=1:nClasses
                 Vcacc(ii) = Vacc;
-                Vcacc(ii).fname = fullfile(pth,['SLcacc',num2str(ii),'_',PRT.model(i_model).model_name,'.nii']);
+                Vcacc(ii).fname = fullfile(pth,['SLcacc',num2str(ii),'_',PRTw.model(i_model).model_name,'.nii']);
                 Vcacc(ii).descrip = ['PRoNTo Search Light class ',num2str(ii),' accuracy'];
                 Vcacc(ii) = spm_create_vol(Vcacc(ii));
             end
@@ -259,16 +263,16 @@ if savImg
             % save mse, corr, r2
             % 1/ prepre files: Vmse, Vcorr, Vr2
             Vmse = Vmsk;
-            Vmse.fname = fullfile(pth,['SLmse_',PRT.model(i_model).model_name,'.nii']);
+            Vmse.fname = fullfile(pth,['SLmse_',PRTw.model(i_model).model_name,'.nii']);
             Vmse.dt(1) = 16; % save as float
             Vmse.descrip = 'PRoNTo Search Light MSE';
             Vmse = spm_create_vol(Vmse);
             Vcorr = Vmse;
-            Vcorr.fname = fullfile(pth,['SLcorr_',PRT.model(i_model).model_name,'.nii']);
+            Vcorr.fname = fullfile(pth,['SLcorr_',PRTw.model(i_model).model_name,'.nii']);
             Vcorr.descrip = 'PRoNTo Search Light Correlation';
             Vcorr = spm_create_vol(Vcorr);
             Vr2 = Vmse;
-            Vr2.fname = fullfile(pth,['SLr2_',PRT.model(i_model).model_name,'.nii']);
+            Vr2.fname = fullfile(pth,['SLr2_',PRTw.model(i_model).model_name,'.nii']);
             Vr2.descrip = 'PRoNTo Search Light R2';
             Vr2 = spm_create_vol(Vr2);
             
