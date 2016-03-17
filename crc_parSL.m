@@ -182,10 +182,10 @@ if savImg
     switch PRTw.model(i_model).input.type
         case 'classification'
             % save acc/bacc/cacc only,
-            Pout = save_classif_images(Vmsk,pth,PRTw,SLres,DIM,nVx,R);
+            Pout = save_classif_images(Vmsk,pth,PRTw,SLres,DIM,nVx,i_model,R,lVx);
         case 'regression'
             % save mse, corr, r2
-            Pout = save_regression_images(Vmsk,pth,PRTw,SLres,DIM,nVx,R);
+            Pout = save_regression_images(Vmsk,pth,PRTw,SLres,DIM,nVx,i_model,R,lVx);
         otherwise
             fprintf('\nUnknown model type!\n')
             Pout{1} = [];
@@ -271,7 +271,7 @@ i_char = [Zpad(1:(nMxZ-length(i_char))) , i_char];
 end
 
 %% Save classification results into images
-function Pout = save_classif_images(Vmsk,pth,PRTw,SLres,DIM,nVx)
+function Pout = save_classif_images(Vmsk,pth,PRTw,SLres,DIM,nVx,i_model,R,lVx)
 % 1/ prepre files: Vacc, Vbacc, Vcacc(1/2/...)
 Vacc = Vmsk;
 Vacc.fname = fullfile(pth, ...
@@ -324,7 +324,7 @@ end
 end
 
 %% Save regression results into images
-function Pout = save_regression_images(Vmsk,pth,PRTw,SLres,DIM,nVx)
+function Pout = save_regression_images(Vmsk,pth,PRTw,SLres,DIM,nVx,i_model,R,lVx)
 % 1/ prepre files: Vmse, Vcorr, Vr2
 Vmse = Vmsk;
 Vmse.fname = fullfile(pth, ...
