@@ -19,10 +19,11 @@ function [SLres,Pout] = crc_SL(Pprt,opt)
 % INPUT:
 % - Pprt    Filename (with path) of PRT.mat file to use
 % - opt     some options (more could be added...)
-%       .R       radius in mm of the spherical searchlight [10 by def.]
-%       .i_model index of PRoNTo model to use [1 by def.]
-%       .loadF   load all features or not [true by def.]
-%       .savImg  save results in image format or not [true by def.]
+%       .R        radius in mm of the spherical searchlight [10 by def.]
+%       .i_model  index of PRoNTo model to use [1 by def.]
+%       .loadF    load all features or not [true by def.]
+%       .savImg   save results in image format or not [true by def.]
+%       .permStat assess accuracy through permuation [false by def.]
 %
 % OUTPUT:
 % - SLres   Searchlight results structure array. There is 1 structure per
@@ -48,7 +49,13 @@ if ~exist('prt_checkAlphaNumUnder','file')
     prt('startup','nogui')
 end
 
-opt_def = struct('R',10,'i_model',1,'loadF',true,'savImg',true);
+% Deal with inputs
+opt_def = struct( ...
+    'R',10, ...
+    'i_model',1, ...
+    'loadF',true, ...
+    'savImg',true, ...
+    'permStat',false);
 if nargin<2
     opt = opt_def;
 else
@@ -58,6 +65,7 @@ R = opt.R; % search light radius in mm
 i_model = opt.i_model; % Model index to use
 loadF = opt.loadF;
 savImg = opt.savImg;
+permStat = opt.permStat;
 
 if nargin<1 || isempty(Pprt)
     Pprt = spm_select(1,'mat','Select the PRT.mat file');
@@ -131,8 +139,13 @@ if isempty(i_fs)
 end
 
 %% Loops over all voxels from the 1st level mask & collect accuracies
-% initialier SL results structure array and include at N+1 the full mask results
-SLres(nVx+1) = PRTorig.model(i_model).output.stats;
+% initialier SL results structure array and
+% include at N+1 the full mask results
+tmp_stats = PRTorig.model(i_model).output.stats;
+if ~permStat && isfield(PRTorig.model(i_model).output.stats,'permutation')
+    tmp_stats = rmfield(tmp_stats,'permutation');
+end
+SLres(nVx+1) = tmp_stats;
 kern_file = fullfile(pth,PRTorig.fs(i_fs).k_file);
 h_wb = waitbar(0,'Voxel counts');
 
@@ -175,12 +188,18 @@ for ivx=1:nVx
         in.model_name = PRT.model(i_model).model_name;
         in.savePRT = false;
         PRT = prt_cv_model(PRT, in);
-        % 4/ collect accuracies
-        SLres(ivx) = PRT.model(i_model).output.stats;
-        
+        SLres_ii = PRT.model(i_model).output.stats;
+
         % TO DO
-        % 5/ permuation testing to get a p-value
+        % 4/ permuation testing to get a p-value
         % -> only do this if it's worth (check the accuracy) !
+        if permStat
+            % do the stats
+            SLres_ii.permutation = [];
+        end
+        
+        % 5/ collect results
+        SLres(ivx) = SLres_ii;
     end
     clear PRT
     waitbar(ivx/nVx,h_wb)

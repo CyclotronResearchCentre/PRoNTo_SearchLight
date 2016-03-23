@@ -23,6 +23,7 @@ function [SLres,Pout] = crc_parSL(Pin,opt)
 %       .i_model index of PRoNTo model to use [1 by def.]
 %       .loadF   load all features or not [true by def.]
 %       .savImg  save results in image format or not [true by def.]
+%       .permStat assess accuracy through permuation [false by def.]
 %
 % OUTPUT:
 % - SLres   Searchlight results structure array. There is 1 structure per
@@ -49,7 +50,12 @@ if ~exist('prt_checkAlphaNumUnder','file')
 end
 
 % Deal with inputs
-opt_def = struct('R',10,'i_model',1,'loadF',true,'savImg',true);
+opt_def = struct( ...
+    'R',10, ...
+    'i_model',1, ...
+    'loadF',true, ...
+    'savImg',true, ...
+    'permStat',false);
 if nargin<2
     opt = opt_def;
 else
@@ -59,6 +65,7 @@ R = opt.R; % search light radius in mm
 i_model = opt.i_model; % Model index to use
 loadF = opt.loadF;
 savImg = opt.savImg;
+permStat = opt.permStat;
 
 if nargin<1 || isempty(Pin)
     Pprt = spm_select(1,'mat','Select the PRT.mat file');
@@ -135,7 +142,11 @@ end
 
 %% Loops over all voxels from the 1st level mask & collect accuracies
 % initialier SL results structure array and include at N+1 the full mask results
-SLres(nVx+1) = PRTorig.model(i_model).output.stats;
+tmp_stats = PRTorig.model(i_model).output.stats;
+if ~permStat && isfield(PRTorig.model(i_model).output.stats,'permutation')
+    tmp_stats = rmfield(tmp_stats,'permutation');
+end
+SLres(nVx+1) = tmp_stats;
 kern_file = fullfile(pth,PRTorig.fs(i_fs).k_file);
 
 if exist('parpool','file')
@@ -146,7 +157,7 @@ end
 
 tic
 parfor ivx=1:nVx
-    [i_SLres,igd] = process_ROI(PRTw,lVx,ivx,clique,XYZ,i_model,i_fs,fs_whole,kern_file,Pprt,DIM);
+    [i_SLres,igd] = process_ROI(PRTw,lVx,ivx,clique,XYZ,i_model,i_fs,fs_whole,kern_file,Pprt,DIM,permStat);
     if igd
         SLres(ivx) = i_SLres;
     end
@@ -198,7 +209,7 @@ end
 %%=========================================================================
 
 %% Process a single searchlight-PRT model
-function [i_SLres,igd] = process_ROI(PRT,lVx,ivx,clique,XYZ,i_model,i_fs,fs_whole,kern_file,Pprt,DIM)
+function [i_SLres,igd] = process_ROI(PRT,lVx,ivx,clique,XYZ,i_model,i_fs,fs_whole,kern_file,Pprt,DIM,permStat)
 
 i_vx = lVx(ivx);
 % 1/ update the list of voxels for 2nd level mask in PRT
@@ -234,13 +245,18 @@ if isempty(min_max) || unique(Phim(:,min_max))~=0 %Kernel does not contain a who
     in.model_name = PRT.model(i_model).model_name;
     in.savePRT = false;
     PRT = prt_cv_model(PRT, in);
-    % 4/ collect accuracies
+    
+    % 4/ collect results
     i_SLres = PRT.model(i_model).output.stats;
     
     % TO DO
     % 5/ permuation testing to get a p-value
     % -> only do this if it's worth (check the accuracy) !
-    
+    if permStat
+        % do the stats
+        i_SLres.permutation = [];
+    end
+        
     % 6/ remove temporary kernel file
     delete([kern_f_ivx,'.mat']);
 else
